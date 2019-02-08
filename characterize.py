@@ -1,15 +1,21 @@
 #coding=utf-8
 import time
 import Slush
+import numpy as np
+import RPi.GPIO as GPIO
+from Slush.Devices import L6470Registers as LReg
+
+GPIO.setwarnings(False)
 
 s = Slush.sBoard()
 m = Slush.Motor(0)
+m.xfer(LReg.RESET_DEVICE)
 
 # speeds to characterize
 speeds = range(100, 1001, 50)
 # target current
 current = .7
-start_k = 30
+start_k = 10
 
 
 # this procedure finds the Krun value that just exceeds the stall threshold
@@ -30,44 +36,43 @@ def find_kval(start):
     return krun
 
 
-m.xfer(0x00)  # Does nothing NOP
-m.xfer(0x00)  # Does nothing NOP
-m.xfer(0x00)  # Does nothing NOP
+m.xfer(LReg.NOP)  # Does nothing NOP
 m.free()  # hardHiZ
-m.xfer(0x0C)  # resets chip
+m.xfer(LReg.RESET_DEVICE)  # resets chip
 time.sleep(.05)
-m.xfer(0x00)  # Does nothing NOP
-m.xfer(0x00)  # Does nothing NOP
-m.xfer(0x00)  # Does nothing NOP
+m.xfer(LReg.NOP)  # Does nothing NOP
 m.free()
 print(m.getStatus())
 
 # set the BEMF compensation parameters to zero so I can find the 
 # compensated value
-m.setParam((0x0E, 8), 0)
-m.setParam((0x0F, 8), 0)
-m.setParam((0x10, 8), 0)
-m.setParam((0x15, 10), 0x3FF)
-m.setParam((0x07, 10), 0x300)
-m.setParam((0x14, 7), 15)
-m.setParam((0x16, 8), 7)
-m.setParam((0x11, 4), 0)
-m.setParam((0x05, 12), 0x8A)
-m.setParam((0x06, 12), 0x8A)
-m.setParam((0x08, 12), 0)
-m.setParam((0x09, 8), 4)
-m.setParam((0x0B, 8), 0x29)
-m.setParam((0x0C, 8), 0x29)
-m.setParam((0x0D, 14), 0)
-m.setParam((0x0A, 8), start_k)
+m.setParam(LReg.ST_SLP, 0)
+m.setParam(LReg.FN_SLP_ACC, 0)
+m.setParam(LReg.FN_SLP_DEC, 0)
+m.setParam(LReg.FS_SPD, 0x3FF)
+m.setParam(LReg.MAX_SPEED, 0x300)
+m.setParam(LReg.STALL_TH, 15)
+m.setParam(LReg.STEP_MODE, 7)
+m.setParam(LReg.K_THERM, 0)
+m.setParam(LReg.ACC, 0x8A)
+m.setParam(LReg.DEC, 0x8A)
+m.setParam(LReg.MIN_SPEED, 0)
+m.setParam(LReg.KVAL_HOLD, 4)
+m.setParam(LReg.KVAL_ACC, 0x29)
+m.setParam(LReg.KVAL_DEC, 0x29)
+m.setParam(LReg.INT_SPD, 0)
+m.setParam(LReg.KVAL_RUN, start_k)
 
 kvals = []
 k_val = start_k
 
 # set the stall detect threshold to the target current
-m.setParam((0x14, 7), int(current / 0.03125))
+m.setParam(LReg.STALL_TH, int(current / 0.03125))
 
 for speed in speeds:
+    if k_val == 256:
+        break
+
     m.getStatus()
     m.run(1, speed)
 
@@ -81,5 +86,15 @@ for speed in speeds:
 
 m.free()
 
+steps = []
+k_val_arr = []
+
 for (i, j) in zip(speeds, kvals):
+    steps.append(i)
+    k_val_arr.append(j)
+
     print('%d, %d' % (i, j))
+
+m,b = np.polyfit(steps, k_val_arr, 1)
+print("slope = " + str(m))
+print("Y-int = " + str(b))
